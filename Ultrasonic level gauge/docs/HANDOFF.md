@@ -41,18 +41,15 @@ OLED без изменений: SDA=A4, SCL=A5, RES=D4.
 - [ ] MODE датчика: AUTO (или MANUAL + `requestUartMeasure()`)
 - [ ] Крутишь setpoint → меняется заливка
 
-## Блокер Proteus #3 — чёрный OLED
-Симптом: симуляция идёт, дисплей чёрный; в примере тот же OLED оживал.
+## Блокер Proteus #3 — чёрный OLED (причина найдена)
+Рабочий пример Proteus (`main.ino` из temp VSM):
+- `Adafruit_SSD1306 display(OLED_RESET);` при `OLED_RESET 4`
+- `display.begin(SSD1306_SWITCHCAPVCC, 0x3D);` ← адрес **0x3D**, не 0x3C
+- старая Adafruit (без проверки `bool` у `begin`)
 
-Чеклист:
-1. **Пересобери hex** (Sketch → Export compiled binary) и в Proteus на Arduino:  
-   Edit Properties → **Program File** → новый  
-   `sketch_jul17a.ino.eightanaloginputs.hex`
-2. В схеме **RES OLED → VCC** (не D4). В скетче сейчас `OLED_RESET = -1` как в примерах.
-3. SDA→A4, SCL→A5, общий GND, VCC дисплея.
-4. После старта должен мелькнуть **белый экран ~0.5 с**, потом UI.  
-   Если белого нет — hex/модель/проводка, не отрисовка ёмкости.
-5. Если пример на **U8g2/U8glib**, а не Adafruit — напиши, перепишем UI на ту же либу.
+Скетч приведён к этому init. RES снова на **D4**.
+
+Пересобери в Proteus/VSM и проверь splash → UI ёмкости.
 
 ## Следующая задача
 *(после успешного UART в Proteus)*  

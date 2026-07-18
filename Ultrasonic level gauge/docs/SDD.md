@@ -9,7 +9,7 @@
 |------|---------------------|
 | МК | Arduino Nano 3 (ATmega328) |
 | Датчик | JSN-SR04T / в Proteus: **Electronics Tree HCSR04 UART** |
-| Дисплей | OLED 0.96" 128×64 I2C (SSD1306, адрес обычно `0x3C`) |
+| Дисплей | OLED 0.96" 128×64 I2C (SSD1306) — в Proteus-примере адрес **`0x3D`** |
 | Среда проверки (сейчас) | Proteus |
 
 ## Пины (Nano)
@@ -17,7 +17,7 @@
 |--------|-----|------------|
 | OLED SDA | A4 | I2C |
 | OLED SCL | A5 | I2C |
-| OLED RES | **VCC** (Proteus) | в скетче `OLED_RESET=-1`; на железе можно D4 + `OLED_RESET=4` |
+| OLED RES | **D4** | как в рабочем примере Proteus: `Adafruit_SSD1306 display(4)` |
 | Датчик UART TX→МК | **D8** (RX SoftSerial) | Sensor TX → Nano D8 |
 | Датчик UART RX←МК | **D7** (TX SoftSerial) | Sensor RX → Nano D7 (нужен в MANUAL) |
 | Датчик TRIG | D9 | запас, режим TRIG/ECHO |
