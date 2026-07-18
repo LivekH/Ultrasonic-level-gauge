@@ -3,7 +3,7 @@
 Обновлено: 2026-07-18
 
 ## Статус
-Скетч на UART. Proteus всё ещё падает: модель не в `MODELS` + на схеме, похоже, остался TRIG/ECHO (пины TR/ECHO).
+UI обновлён: ватерлиния + `XX.YY` по центру. OLED/UART в Proteus — на проверке.
 
 ## Блокер Proteus #2
 1. В `LIBRARY` есть `ElectronicsTree[HCSR04].LIB`, но в  

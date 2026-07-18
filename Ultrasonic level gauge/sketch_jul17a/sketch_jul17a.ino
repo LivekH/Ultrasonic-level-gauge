@@ -14,6 +14,8 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <SoftwareSerial.h>
+#include <stdio.h>
+#include <string.h>
 
 // =============================================================================
 // РЕЖИМ ДАТЧИКА — выбери один вариант
@@ -111,10 +113,13 @@ void drawTankFrame() {
 
 void drawScale() {
   const int marks[] = {0, 4, 8, 12};
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+
   for (int i = 0; i < 4; i++) {
     int value = marks[i];
     int y = TANK_BOTTOM - (int)((value / TANK_CAPACITY_M3) * TANK_H);
-    display.drawFastHLine(SCALE_X, y, 4, WHITE);
+    display.drawFastHLine(SCALE_X, y, SCALE_TICK_W, WHITE);
 
     int textY = y - 3;
     if (textY < 0) textY = 0;
@@ -125,25 +130,58 @@ void drawScale() {
   }
 }
 
-void drawWater(float volume_m3) {
+// Только ватерлиния (верх зеркала воды), без заливки всего объёма
+void drawWaterLine(float volume_m3) {
   if (volume_m3 < 0.0f) volume_m3 = 0.0f;
   if (volume_m3 > TANK_CAPACITY_M3) volume_m3 = TANK_CAPACITY_M3;
 
-  int fillH = (int)((volume_m3 / TANK_CAPACITY_M3) * TANK_H);
-  if (fillH <= 0) return;
+  int fillH = (int)((volume_m3 / TANK_CAPACITY_M3) * TANK_H + 0.5f);
+  if (fillH < 0) fillH = 0;
+  if (fillH > TANK_H) fillH = TANK_H;
 
-  int fillY = TANK_BOTTOM - fillH;
-  display.fillRect(TANK_X + 1, fillY, TANK_W - 1, fillH, WHITE);
+  int y = TANK_BOTTOM - fillH;
+  if (y < TANK_Y) y = TANK_Y;
+  if (y > TANK_BOTTOM) y = TANK_BOTTOM;
+
+  display.drawFastHLine(TANK_X + 1, y, TANK_W - 1, WHITE);
+}
+
+// XX.YY — целые м³ и сотые м³ (= YY×10 литров), напр. 8.56 → 8 м³ + 560 л
+void drawVolumeValue(float volume_m3) {
+  if (volume_m3 < 0.0f) volume_m3 = 0.0f;
+  if (volume_m3 > TANK_CAPACITY_M3) volume_m3 = TANK_CAPACITY_M3;
+
+  int m3 = (int)volume_m3;
+  int centi = (int)((volume_m3 - (float)m3) * 100.0f + 0.5f); // 0..99
+  if (centi >= 100) {
+    m3++;
+    centi = 0;
+  }
+
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%d.%02d", m3, centi);
+
+  display.setTextSize(2);   // символ 12×16
+  display.setTextColor(WHITE);
+
+  int tw = (int)strlen(buf) * 12;
+  int th = 16;
+  int tx = TANK_X + (TANK_W - tw) / 2;
+  int ty = TANK_Y + (TANK_H - th) / 2;
+
+  // подложка, чтобы ватерлиния не перечёркивала цифры
+  display.fillRect(tx - 2, ty - 1, tw + 4, th + 2, BLACK);
+  display.setCursor(tx, ty);
+  display.print(buf);
 }
 
 void drawInterface(float volume_m3) {
   display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
 
-  drawWater(volume_m3);
+  drawWaterLine(volume_m3);
   drawTankFrame();
   drawScale();
+  drawVolumeValue(volume_m3);
 
   display.display();
 }
