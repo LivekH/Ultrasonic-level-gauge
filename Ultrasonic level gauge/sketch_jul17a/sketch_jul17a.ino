@@ -40,11 +40,33 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // =============================================================================
-// Ёмкость / UI
+// ПАРАМЕТРЫ РЕАЛЬНОЙ ЁМКОСТИ (калибровка)
 // =============================================================================
-const float TANK_CAPACITY_M3 = 12.0f;
+// Квадратное сечение → объём пропорционален высоте столба воды.
+// Полный объём и высота «дно → горло» — крути здесь при калибровке датчика.
+const float TANK_CAPACITY_M3 = 12.0f;   // полный объём, м³
+const float TANK_HEIGHT_M    = 1.8f;    // <<< КАЛИБРОВКА: высота от дна до горла, м
 
-// Геометрия «ёмкости» на экране (открытый верх)
+// Площадь сечения (м²) считается из V и H — для квадратной ёмкости сторона = sqrt(S)
+const float TANK_AREA_M2 = TANK_CAPACITY_M3 / TANK_HEIGHT_M;  // 12 / 1.8 ≈ 6.667 м²
+
+// level_m — высота воды от дна, м → объём, м³
+float volumeFromLevel_m3(float level_m) {
+  if (level_m < 0.0f) level_m = 0.0f;
+  if (level_m > TANK_HEIGHT_M) level_m = TANK_HEIGHT_M;
+  return level_m * TANK_AREA_M2;                 // = level_m / TANK_HEIGHT_M * TANK_CAPACITY_M3
+}
+
+// volume_m3 → высота воды от дна, м
+float levelFromVolume_m(float volume_m3) {
+  if (volume_m3 < 0.0f) volume_m3 = 0.0f;
+  if (volume_m3 > TANK_CAPACITY_M3) volume_m3 = TANK_CAPACITY_M3;
+  return volume_m3 / TANK_AREA_M2;
+}
+
+// =============================================================================
+// Геометрия «ёмкости» на OLED (открытый верх) — только картинка, не метры
+// =============================================================================
 const int TANK_X      = 18;
 const int TANK_Y      = 6;     // верх стенок (линии сверху нет)
 const int TANK_W      = 52;
@@ -53,11 +75,13 @@ const int TANK_BOTTOM = TANK_Y + TANK_H;   // 56
 const int TANK_RIGHT  = TANK_X + TANK_W;   // 70
 
 // Шкала справа от ёмкости
-const int SCALE_X     = TANK_RIGHT + 4;    // начало засечек
+const int SCALE_X       = TANK_RIGHT + 4;
 const int SCALE_LABEL_X = SCALE_X + 6;
 
-// Временный уровень для проверки UI в Proteus (м³). Потом заменим данными с датчика.
-float demoVolume_m3 = 6.0f;
+// Временный уровень для проверки UI в Proteus.
+// Потом заменим: level_m с датчика → volumeFromLevel_m3(level_m)
+float demoLevel_m = TANK_HEIGHT_M * 0.5f;   // половина высоты ≈ 0.9 м → 6 м³
+
 
 // -----------------------------------------------------------------------------
 void drawTankFrame() {
@@ -140,11 +164,11 @@ void setup() {
   display.clearDisplay();
   display.display();
 
-  drawInterface(demoVolume_m3);
+  drawInterface(volumeFromLevel_m3(demoLevel_m));
 }
 
 void loop() {
-  // Пока только UI. Следующая задача — чтение датчика.
-  drawInterface(demoVolume_m3);
+  // Пока только UI. Следующая задача — чтение датчика → level_m → volume.
+  drawInterface(volumeFromLevel_m3(demoLevel_m));
   delay(500);
 }
