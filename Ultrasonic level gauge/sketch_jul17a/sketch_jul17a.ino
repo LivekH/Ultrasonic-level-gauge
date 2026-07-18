@@ -35,24 +35,21 @@ SoftwareSerial sensorSerial(SENSOR_RX, SENSOR_TX);
 #define SENSOR_DIST_IS_MM 0
 
 // =============================================================================
-// OLED — ТОЧНО как в рабочем примере Proteus
+// OLED — как в рабочем примере Proteus (RES=D4, адрес 0x3D)
 // =============================================================================
 #define OLED_RESET 4                 // RES дисплея -> D4
+#define OLED_ADDR  0x3D              // Proteus 128x64: 0x3D (не 0x3C)
+
+// Как в примере Proteus: display(OLED_RESET). В .h библиотеки должен быть SSD1306_128_64.
 Adafruit_SSD1306 display(OLED_RESET);
 
-// Старая Adafruit (Proteus): WHITE/BLACK. Новая: SSD1306_WHITE.
+// Старая: WHITE/BLACK. Новая: SSD1306_WHITE.
 #ifndef WHITE
 #define WHITE SSD1306_WHITE
 #endif
 #ifndef BLACK
 #define BLACK SSD1306_BLACK
 #endif
-
-#if defined(SSD1306_LCDHEIGHT) && (SSD1306_LCDHEIGHT != 64)
-#error("Height incorrect, please fix Adafruit_SSD1306.h!");
-#endif
-
-#define OLED_ADDR 0x3D               // в примере Proteus для 128x64 — 0x3D (не 0x3C!)
 
 // =============================================================================
 // ПАРАМЕТРЫ РЕАЛЬНОЙ ЁМКОСТИ (калибровка)
