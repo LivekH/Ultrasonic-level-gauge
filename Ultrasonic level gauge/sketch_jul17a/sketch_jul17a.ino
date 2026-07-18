@@ -230,9 +230,7 @@ void setup() {
 
   // ВАЖНО для Proteus: адрес 0x3D, RES=D4, старый конструктор
   display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
-  display.display();   // splash буфера (как в примере)
-  delay(500);
-
+  // begin() кладёт в буфер splash Adafruit — сразу чистим, без display() со логотипом
   display.clearDisplay();
   drawInterface(volumeFromLevel_m3(currentLevel_m));
 }
