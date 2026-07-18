@@ -79,16 +79,27 @@ float levelFromDistance_m(float distance_m) {
 }
 
 // =============================================================================
-// Геометрия UI на OLED
+// Геометрия UI на OLED 128x64 — отступы 4 px от всех краёв
 // =============================================================================
-const int TANK_X      = 18;
-const int TANK_Y      = 6;
-const int TANK_W      = 52;
-const int TANK_H      = 50;
-const int TANK_BOTTOM = TANK_Y + TANK_H;
-const int TANK_RIGHT  = TANK_X + TANK_W;
-const int SCALE_X       = TANK_RIGHT + 4;
-const int SCALE_LABEL_X = SCALE_X + 6;
+const int MARGIN = 4;
+const int SCREEN_W = 128;
+const int SCREEN_H = 64;
+
+// Справа: подпись «12» (~12 px) + зазор + засечка 4 px
+const int SCALE_LABEL_W = 12;
+const int SCALE_TICK_W  = 4;
+const int SCALE_GAP     = 2;   // между засечкой и цифрой
+const int TANK_SCALE_GAP = 3;  // между стенкой ёмкости и засечками
+
+const int SCALE_LABEL_X = SCREEN_W - MARGIN - SCALE_LABEL_W;          // 112
+const int SCALE_X       = SCALE_LABEL_X - SCALE_GAP - SCALE_TICK_W;   // 106
+
+const int TANK_X      = MARGIN;                                       // 4
+const int TANK_Y      = MARGIN;                                       // 4
+const int TANK_RIGHT  = SCALE_X - TANK_SCALE_GAP;                     // 103
+const int TANK_W      = TANK_RIGHT - TANK_X;                           // 99
+const int TANK_BOTTOM = SCREEN_H - MARGIN;                            // 60
+const int TANK_H      = TANK_BOTTOM - TANK_Y;                          // 56
 
 float currentLevel_m = TANK_HEIGHT_M * 0.5f;
 
@@ -107,7 +118,7 @@ void drawScale() {
 
     int textY = y - 3;
     if (textY < 0) textY = 0;
-    if (textY > 56) textY = 56;
+    if (textY > SCREEN_H - 8) textY = SCREEN_H - 8;
 
     display.setCursor(SCALE_LABEL_X, textY);
     display.print(value);
