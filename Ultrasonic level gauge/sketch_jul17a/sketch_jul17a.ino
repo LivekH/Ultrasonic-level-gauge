@@ -130,6 +130,7 @@ float lastDistance_cm = SENSOR_MAX_CM;
 bool  sensorHasReading = false;
 unsigned int sensorBytesRx = 0;    // сколько байт дошло по UART (диагностика)
 unsigned int sensorFramesOk = 0;   // сколько кадров принято
+uint8_t lastRx[4] = {0, 0, 0, 0}; // последние 4 байта (для hex на экране)
 
 void drawTankFrame() {
   display.drawFastVLine(TANK_X, TANK_Y, TANK_H, WHITE);
@@ -265,12 +266,13 @@ void drawVolumeValue(float volume_m3) {
 }
 
 void drawSensorDebug() {
-  // Сверху по центру — не пересекается со шкалой «0» справа внизу
+  // Сверху: либо «NN cm», либо сырые байты HEX (VT «fg» = бинарник, смотрим код)
   char dbg[22];
   if (sensorHasReading) {
     snprintf(dbg, sizeof(dbg), "%d cm", (int)(lastDistance_cm + 0.5f));
   } else {
-    snprintf(dbg, sizeof(dbg), "b%u f%u", sensorBytesRx % 1000U, sensorFramesOk % 1000U);
+    snprintf(dbg, sizeof(dbg), "%02X%02X%02X%02X",
+             lastRx[0], lastRx[1], lastRx[2], lastRx[3]);
   }
   display.setTextSize(1);
   display.setTextColor(WHITE);
@@ -299,17 +301,31 @@ void drawInterface(float volume_m3) {
 //   level_m = 1.8 - distance_m
 // =============================================================================
 #if defined(SENSOR_MODE_UART)
+static void pushLastRx(uint8_t b) {
+  lastRx[0] = lastRx[1];
+  lastRx[1] = lastRx[2];
+  lastRx[2] = lastRx[3];
+  lastRx[3] = b;
+}
+
 bool readUartDistance(uint16_t &distance_raw) {
   static uint8_t state = 0;
   static uint8_t H = 0, L = 0;
+  bool got = false;
 
   while (SENSOR_PORT.available()) {
     uint8_t b = (uint8_t)SENSOR_PORT.read();
     sensorBytesRx++;
+    pushLastRx(b);
+
+    // 0xFF всегда начинает новый кадр (даже посреди старого)
+    if (b == 0xFF) {
+      state = 1;
+      continue;
+    }
 
     switch (state) {
       case 0:
-        if (b == 0xFF) state = 1;
         break;
       case 1:
         H = b;
@@ -325,19 +341,18 @@ bool readUartDistance(uint16_t &distance_raw) {
         uint8_t chkSum = (uint8_t)(H + L);
         bool ok = (b == chkEt) || (b == chkSum);
 #if !SENSOR_UART_STRICT_CHECKSUM
-        ok = true;  // берём H,L даже при плохой сумме — для отладки модели
+        ok = true;
 #endif
         if (ok) {
           distance_raw = ((uint16_t)H << 8) | L;
           sensorFramesOk++;
-          return true;
+          got = true;
         }
-        if (b == 0xFF) state = 1;
         break;
       }
     }
   }
-  return false;
+  return got;
 }
 
 void requestUartMeasure() {
