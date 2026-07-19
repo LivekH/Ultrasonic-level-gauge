@@ -1,90 +1,63 @@
 # HANDOFF — Ultrasonic level gauge
 
-Обновлено: 2026-07-18
+Обновлено: 2026-07-19
 
 ## Статус
-Снова UART (ET). TRIG/ECHO недоступен — нет `HCSR04.MDF` в комплекте.
-`no.rx` = датчик не шлёт / не тот RX. Чеклист ниже.
+**ПАУЗА — ожидание железа** (докупка OLED 0.96" + JSN-SR04T, сборка тестового стенда).
 
-## Маппинг датчика → объём
-| Distance (см) | Уровень | Объём |
-|---------------|---------|-------|
-| 180 (MAX) | 0 м | 0.00 м³ |
-| 90 | 0.9 м | 6.00 м³ |
-| 0 | 1.8 м | 12.00 м³ |
+UI и прошивка под реальный UART готовы. Proteus UART ET отложена (модель глючит).  
+Когда железо будет — продолжаем отладку с этого handoff.
 
-`level = 1.8 − distance_m`, опрос UART каждые 200 мс (`0x55` + кадр `FF H L CHK`).
+## Что значат свойства датчика в Proteus
+| Поле | У тебя | Смысл |
+|------|--------|--------|
+| `MODFILE=HCSR04_UART` | да | UART-модель (не TRIG/ECHO) |
+| `MODE=0` | AUTO | кадр **только при изменении** setpoint ▲/▼ |
+| `SETPOINT=163.0` | см | текущая «дистанция» |
+| `MAX=400` | см | потолок модели |
+| `FORMAT=3.1` | | отображение с 1 знаком после запятой |
+| `MODDLL=SETPOINT.DLL` | | крутилка значения на компоненте |
 
-## Блокер Proteus #2
-1. В `LIBRARY` есть `ElectronicsTree[HCSR04].LIB`, но в  
-   `C:\Program Files (x86)\Labcenter Electronics\Proteus 8 Professional\MODELS`  
-   **нет** `HCSR04_UART.MDF` и `ULTRASONICUART.dll` (копирование без админа — Access Denied).
-2. Ошибка `Pin 'TR'/'ECHO' is not modelled` = на схеме компонент **HC-SR04 (TRIG/ECHO)**, а не UART.  
-   Нужен: **Ultra-Sonic Sensor Module with UART** (пины **TX/RX**, `MODFILE=HCSR04_UART`).
+`HCSR04.MDF` (TRIG/ECHO) в комплекте ET **нет** — только `HCSR04_UART.MDF`.
 
-### Фикс
-1. PowerShell **от администратора** → `docs/install_proteus_uart_model.ps1`
-2. Закрыть/открыть Proteus
-3. Удалить старый U2 → Pick Devices → UART-вариант → TX→D8, RX→D7
+## Скетч под реальное железо (сейчас)
+Файл: `sketch_jul17a/sketch_jul17a.ino`
 
-## Сделано
-- [x] UI: ёмкость, шкала 0/4/8/12, ватерлиния, `XX.YY` по центру (принято)
-- [x] Калибровка `TANK_HEIGHT_M=1.8`, `TANK_CAPACITY_M3=12`
-- [x] Активен `SENSOR_MODE_UART` (SoftSerial D8/D7, 9600)
-- [x] Парсер кадра `FF H L CHK`
-- [x] `levelFromDistance_m()` → объём на OLED
-- [x] TRIG/ECHO оставлен в скетче (закомментирован режим)
-- [x] Блокер `HCSR04.MDF` — обход сменой на UART-модель
+| Опция | Значение |
+|-------|----------|
+| `SENSOR_MODE_UART` | вкл |
+| `SENSOR_UART_HW` | **0** (SoftSerial D6/D7) |
+| `SENSOR_DIST_IS_MM` | **1** (мм → см) |
+| `SENSOR_UART_MANUAL_TRIGGER` | **1** (опрос `0x55`) |
+| `SENSOR_UART_STRICT_CHECKSUM` | **1** |
+| `PROTEUS_ET_QUIRK` | **0** |
+| `SENSOR_DEBUG_OSD` | **1** (сверху см / no.rx) |
 
-## Соединения Proteus (UART) — Hardware Serial
-В Proteus SoftSerial часто не работает. Скетч: `SENSOR_UART_HW 1`.
-
-| Датчик | Nano в Proteus |
-|--------|----------------|
-| **TX** | **PD0 / RX0 / D0** |
-| **RX** | **PD1 / TX0 / D1** |
-| VCC | +5V |
+### Проводка реального JSN-SR04T (UART)
+| JSN | Nano |
+|-----|------|
+| TX | **D6** |
+| RX | **D7** |
+| VCC | 5V |
 | GND | GND |
 
-Крестовина: TX↔RX.
+OLED: SDA=A4, SCL=A5, RES=D4, адрес `0x3D`.
 
-### Если `no.rx` (0 байт на RX МК)
-Значит датчик **молчит** или провод не на тот RX.
+Если модуль в режиме автовыдачи UART (без 0x55) → `SENSOR_UART_MANUAL_TRIGGER 0`.  
+Если TRIG/ECHO → `SENSOR_MODE_TRIG_ECHO`, пины D9/D10.
 
-1. Свойства датчика: **MODE = AUTO**
-2. В скетче `SENSOR_UART_MANUAL_TRIGGER 0` (не слать 0x55 — как в примере ET)
-3. Пуск симуляции → **кликай ▲/▼ на самом датчике** (менять cm). Без клика AUTO не шлёт кадр.
-4. Проверка без МК: Virtual Terminal 9600 на **TX датчика** → при клике должны сыпаться байты.  
-   - VT пусто → модель/DLL/MODE  
-   - VT живой, `no.rx` → не тот пин RX у Arduino (нужен именно **PD0/RXD**)
-5. Для MANUAL: MODE=MANUAL и в скетче `SENSOR_UART_MANUAL_TRIGGER 1`.
+## Маппинг
+`distance` от зеркала вниз с горла:  
+`180 см` → `0.00` м³; `0 см` → `12.00` м³  
+`level = 1.8 − distance_m`
 
-OLED без изменений: SDA=A4, SCL=A5, RES=D4.
+## Сделано (UI)
+- [x] Ёмкость, шкала 0/4/8/12, заливка, зазор 1 px, волна, `XX.YY` в окне
+- [x] Калибровка `TANK_HEIGHT_M=1.8`, `TANK_CAPACITY_M3=12`
+- [x] docs/SDD.md
 
-## Проверить сейчас
-- [ ] OLED чёрный → см. блокер #3 ниже
-- [ ] MODE датчика: AUTO (или MANUAL + `requestUartMeasure()`)
-- [ ] Крутишь setpoint → меняется заливка
-
-## Блокер Proteus #3 — чёрный OLED (причина найдена)
-Рабочий пример Proteus (`main.ino` из temp VSM):
-- `Adafruit_SSD1306 display(OLED_RESET);` при `OLED_RESET 4`
-- `display.begin(SSD1306_SWITCHCAPVCC, 0x3D);` ← адрес **0x3D**, не 0x3C
-- старая Adafruit (без проверки `bool` у `begin`)
-
-Скетч приведён к этому init. RES снова на **D4**.
-
-Пересобери в Proteus/VSM и проверь splash → UI ёмкости.
-
-## Следующая задача
-*(после успешного UART в Proteus)*  
-Уточнить единицы (см/мм) на реальном JSN; при необходимости подписи объёма на OLED.
-
-## Открытые решения
-- `SENSOR_DIST_IS_MM` — для Proteus ET = 0 (см); для железа часто 1 (мм)
-- Точная `TANK_HEIGHT_M` при калибровке
-
-## Рабочие пути
-- Код: `sketch_jul17a/sketch_jul17a.ino`
-- Спека: `docs/SDD.md`
-- Handoff: `docs/HANDOFF.md`
+## Следующее
+1. Собрать на столе Nano + OLED + JSN  
+2. Залить скетч, проверить кадр `FF H L CHK` (сверху см)  
+3. Калибровка `TANK_HEIGHT_M` / `SENSOR_MOUNT_OFFSET_M` на реальной ёмкости  
+4. При стабильной работе: `SENSOR_DEBUG_OSD 0`

@@ -2,12 +2,14 @@
  * Ultrasonic level gauge — Arduino Nano 3
  * OLED 0.96" 128x64 I2C (SSD1306) + JSN-SR04T
  *
- * OLED init — как в рабочем примере Proteus (ssd1306_128x64_i2c):
- *   Adafruit_SSD1306 display(OLED_RESET);  RES=D4, адрес 0x3D
+ * OLED: SDA=A4, SCL=A5, RES=D4, адрес 0x3D (как в рабочем примере)
  *
- * Датчик UART (Proteus): TX датчика -> D0/PD0/RX0, RX датчика -> D1/PD1/TX0
- *   В Proteus SoftSerial часто НЕ работает — используем Hardware Serial (как в примере ET).
- * Датчик TRIG/ECHO (запас): TRIG=D9 (PB1), ECHO=D10 (PB2)
+ * Реальный JSN-SR04T UART (рекомендуется):
+ *   TX датчика -> D6 (RX SoftSerial), RX датчика -> D7 (TX SoftSerial)
+ *   Кадр: FF | H | L | CHK, CHK=(FF+H+L)&FF, дистанция обычно в мм
+ *   Режим модуля с опросом: слать 0x55 (R27=120k). Автовыдача — можно TRIGGER 0.
+ *
+ * TRIG/ECHO запас: TRIG=D9, ECHO=D10
  */
 
 #include <SPI.h>
@@ -18,41 +20,43 @@
 #include <string.h>
 
 // =============================================================================
-// РЕЖИМ ДАТЧИКА — выбери один вариант
+// РЕЖИМ ДАТЧИКА
 // =============================================================================
-// Вариант A: TRIG/ECHO — закомментируй UART ниже и раскомментируй эту строку
- //#define SENSOR_MODE_TRIG_ECHO
-
-// Вариант B (сейчас активен): UART — Proteus Electronics Tree HCSR04_UART / JSN-SR04T
+// #define SENSOR_MODE_TRIG_ECHO
 #define SENSOR_MODE_UART
 
 #define TRIG_PIN 9
 #define ECHO_PIN 10
 
-// --- UART порт ---
-// 1 = Hardware Serial D0/D1 (PD0/PD1) — ДЛЯ PROTEUS (рекомендуется, как в примере ET)
-// 0 = SoftwareSerial D6/D7 — запас для железа, если D0/D1 заняты USB-отладкой
-#define SENSOR_UART_HW 1
+// 0 = SoftSerial D6/D7 — ДЛЯ РЕАЛЬНОГО ЖЕЛЕЗА (USB Serial свободен для отладки)
+// 1 = Hardware Serial D0/D1 — только если не нужен USB Serial
+#define SENSOR_UART_HW 0
 
 #if defined(SENSOR_MODE_UART) && (SENSOR_UART_HW == 0)
 #include <SoftwareSerial.h>
-#define SENSOR_RX 6   // PD6 <- TX датчика
-#define SENSOR_TX 7   // PD7 -> RX датчика
+#define SENSOR_RX 6   // <- TX датчика
+#define SENSOR_TX 7   // -> RX датчика
 SoftwareSerial sensorSerial(SENSOR_RX, SENSOR_TX);
 #define SENSOR_PORT sensorSerial
 #elif defined(SENSOR_MODE_UART)
 #define SENSOR_PORT Serial
 #endif
 
-// Proteus ET UART: расстояние в кадре в СМ. Реальный JSN часто мм → поставь 1.
-#define SENSOR_DIST_IS_MM 0
+// Реальный JSN-SR04T UART: дистанция в мм → 1. Если вдруг см → 0.
+#define SENSOR_DIST_IS_MM 1
 
-// 0 = принимать кадр FF H L x даже если checksum не сошёлся (диагностика Proteus)
-// 1 = только с верной контрольной суммой
-#define SENSOR_UART_STRICT_CHECKSUM 0
+// 1 = только кадры с верной CHK (для железа). 0 = мягче (отладка).
+#define SENSOR_UART_STRICT_CHECKSUM 1
 
-// Период запроса (мс) для MODE=MANUAL. В AUTO кадр идёт только при ИЗМЕНЕНИИ setpoint!
+// 1 = каждые SENSOR_POLL_MS слать 0x55 (режим «по запросу» JSN). 0 = только слушать.
+#define SENSOR_UART_MANUAL_TRIGGER 1
 const unsigned long SENSOR_POLL_MS = 200UL;
+
+// Костыли кривой модели Proteus ET — выкл. на реальном датчике.
+#define PROTEUS_ET_QUIRK 0
+
+// 1 = сверху HEX/см для отладки. 0 = чистый UI.
+#define SENSOR_DEBUG_OSD 1
 
 // =============================================================================
 // OLED — как в рабочем примере Proteus (RES=D4, адрес 0x3D)
@@ -266,12 +270,12 @@ void drawVolumeValue(float volume_m3) {
 }
 
 void drawSensorDebug() {
-  // Всегда: HEX кадра + декод в см (чтоб ловить рассинхрон)
+#if SENSOR_DEBUG_OSD
   char dbg[22];
   if (sensorHasReading) {
-    snprintf(dbg, sizeof(dbg), "%02X%02X%02X%02X %d",
-             lastRx[0], lastRx[1], lastRx[2], lastRx[3],
-             (int)(lastDistance_cm + 0.5f));
+    snprintf(dbg, sizeof(dbg), "%d cm", (int)(lastDistance_cm + 0.5f));
+  } else if (sensorBytesRx == 0) {
+    snprintf(dbg, sizeof(dbg), "no.rx");
   } else {
     snprintf(dbg, sizeof(dbg), "%02X%02X%02X%02X",
              lastRx[0], lastRx[1], lastRx[2], lastRx[3]);
@@ -279,16 +283,16 @@ void drawSensorDebug() {
   display.setTextSize(1);
   display.setTextColor(WHITE);
   int tw = (int)strlen(dbg) * 6;
-  if (tw > SCREEN_W) tw = SCREEN_W;
   display.setCursor((SCREEN_W - tw) / 2, 0);
   display.print(dbg);
+#endif
 }
 
 void drawInterface(float volume_m3) {
   display.clearDisplay();
 
-  drawWater(volume_m3);   // динамика
-  drawTankFrame();        // статика поверх зазоров
+  drawWater(volume_m3);
+  drawTankFrame();
   drawScale();
   drawVolumeValue(volume_m3);
   drawSensorDebug();
@@ -311,34 +315,21 @@ static void pushLastRx(uint8_t b) {
   lastRx[3] = b;
 }
 
-// Кадр Proteus ET (факт с модели), без обязательного 0xFF:
-//   00 HH LL YY
-// Малые см (≤31): LL = cm*8 при HH=0  → 3 см = 00 00 18 F0
-// Большие см:     (HH<<8|LL) = cm*8     → 58 см = 00 01 D0 F0 (464=58*8)
-// Либо прямые см в (HH<<8|LL), если не кратно 8 → 58 = 00 00 3A F0
-// Парсим только когда пришёл хвост YY==0xF0 (иначе ловим «окна» и получаем 9 см вместо 58).
+#if PROTEUS_ET_QUIRK
 bool tryParseProteusEtQuirk(uint16_t &distance_raw) {
-  if (lastRx[0] != 0x00) return false;
-  if (lastRx[3] != 0xF0) return false;  // якорь конца кадра из наблюдений
-
+  if (lastRx[0] != 0x00 || lastRx[3] != 0xF0) return false;
   uint16_t s = ((uint16_t)lastRx[1] << 8) | lastRx[2];
   if (s == 0) return false;
-
   uint16_t cm = 0;
-  if (s > 255 && (s & 0x07) == 0) {
-    cm = s >> 3;                     // 16-bit cm*8
-  } else if (lastRx[1] == 0 && (lastRx[2] & 0x07) == 0) {
-    cm = (uint16_t)lastRx[2] >> 3;   // 8-bit cm*8
-  } else if (s <= 400) {
-    cm = s;                          // прямые см
-  } else {
-    return false;
-  }
-
+  if (s > 255 && (s & 0x07) == 0) cm = s >> 3;
+  else if (lastRx[1] == 0 && (lastRx[2] & 0x07) == 0) cm = (uint16_t)lastRx[2] >> 3;
+  else if (s <= 400) cm = s;
+  else return false;
   if (cm < 1 || cm > 400) return false;
   distance_raw = cm;
   return true;
 }
+#endif
 
 bool readUartDistance(uint16_t &distance_raw) {
   static uint8_t state = 0;
@@ -350,7 +341,7 @@ bool readUartDistance(uint16_t &distance_raw) {
     sensorBytesRx++;
     pushLastRx(b);
 
-    // --- стандарт JSN / документация ET: FF H L CHK ---
+    // Стандарт JSN-SR04T / док ET: FF H L CHK
     if (b == 0xFF) {
       state = 1;
       continue;
@@ -370,14 +361,13 @@ bool readUartDistance(uint16_t &distance_raw) {
       case 3: {
         state = 0;
         uint16_t dist = ((uint16_t)H << 8) | L;
-        uint8_t chkEt = (uint8_t)(0xFF + H + L);
-        uint8_t chkSum = (uint8_t)(H + L);
-        bool ok = (b == chkEt) || (b == chkSum);
+        uint8_t chk = (uint8_t)(0xFF + H + L);
+        uint8_t chkAlt = (uint8_t)(H + L);
+        bool ok = (b == chk) || (b == chkAlt);
 #if !SENSOR_UART_STRICT_CHECKSUM
-        // без жёсткой суммы — но только если расстояние правдоподобно (не 0x18F0 → «180»)
-        ok = ok || (dist <= 400);
+        ok = ok || (dist > 0 && dist < 6000);  // мм/см запас для отладки
 #endif
-        if (ok && dist <= 400) {
+        if (ok) {
           distance_raw = dist;
           sensorFramesOk++;
           got = true;
@@ -386,18 +376,18 @@ bool readUartDistance(uint16_t &distance_raw) {
       }
     }
 
-    // --- обходной разбор кадра Proteus (00 00 XX YY, XX=cm*8) ---
+#if PROTEUS_ET_QUIRK
     if (!got && tryParseProteusEtQuirk(distance_raw)) {
       sensorFramesOk++;
       got = true;
     }
+#endif
   }
   return got;
 }
 
 void requestUartMeasure() {
-  // JSN: 0x55. Модель ET в MANUAL тоже ждёт байт на RX — шлём 0x55.
-  SENSOR_PORT.write((uint8_t)0x55);
+  SENSOR_PORT.write((uint8_t)0x55);  // JSN UART mode «по запросу»
 }
 
 void flushSensorSerial() {
@@ -444,7 +434,9 @@ void setupSensor() {
   SENSOR_PORT.begin(9600);
   delay(100);
   flushSensorSerial();
-  requestUartMeasure();  // на случай MODE=MANUAL
+#if SENSOR_UART_MANUAL_TRIGGER
+  requestUartMeasure();
+#endif
 #else
 #error "Выбери SENSOR_MODE_TRIG_ECHO или SENSOR_MODE_UART"
 #endif
@@ -484,12 +476,12 @@ void setup() {
 }
 
 void loop() {
-#if defined(SENSOR_MODE_UART)
+#if defined(SENSOR_MODE_UART) && SENSOR_UART_MANUAL_TRIGGER
   static unsigned long lastPoll = 0;
   unsigned long now = millis();
   if (now - lastPoll >= SENSOR_POLL_MS) {
     lastPoll = now;
-    requestUartMeasure();  // AUTO: лишний байт обычно ок; MANUAL: обязателен
+    requestUartMeasure();
   }
 #endif
 

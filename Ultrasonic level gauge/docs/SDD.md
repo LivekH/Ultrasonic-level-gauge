@@ -10,7 +10,7 @@
 | МК | Arduino Nano 3 (ATmega328) |
 | Датчик | JSN-SR04T / в Proteus: **Electronics Tree HCSR04 UART** |
 | Дисплей | OLED 0.96" 128×64 I2C (SSD1306) — в Proteus-примере адрес **`0x3D`** |
-| Среда проверки (сейчас) | Proteus |
+| Среда проверки | Реальное железо (Proteus UART ET — отложена, модель глючит) |
 
 ## Пины (Nano)
 | Сигнал | Пин | Примечание |
