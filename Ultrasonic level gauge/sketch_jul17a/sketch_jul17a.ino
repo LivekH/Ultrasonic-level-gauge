@@ -157,14 +157,25 @@ void drawWater(float volume_m3) {
   // Основная заливка
   display.fillRect(waterL, topY, waterW, waterBottom - topY + 1, WHITE);
 
-  // Волна по поверхности: период 5 с, длительность проезда ~900 мс
-  unsigned long cycle = millis() % 5000UL;
-  if (cycle < 900UL && fillH >= 2) {
-    int crest = (int)((cycle * (waterW + 12)) / 900UL) - 6; // бежит слева направо
+  // Волна: туда-обратно по всей ширине зеркала (L→R, затем R→L).
+  // Полный цикл 5 с: 2.5 с вправо, 2.5 с влево — в медленной симуляции так читаемее.
+  if (fillH >= 2) {
+    const unsigned long halfMs = 2500UL;
+    const unsigned long cycle = millis() % (halfMs * 2UL);
+    const int path = waterW - 1; // от левого края воды до правого
+    int crest; // смещение гребня от waterL, 0..path
+
+    if (cycle < halfMs) {
+      crest = (int)((cycle * (unsigned long)path) / halfMs);           // L → R
+    } else {
+      crest = path - (int)(((cycle - halfMs) * (unsigned long)path) / halfMs); // R → L
+    }
+
+    // Широкий «горб», чтобы в Proteus не терялся между кадрами
     for (int x = waterL; x <= waterR; x++) {
       int d = abs((x - waterL) - crest);
-      if (d > 5) continue;
-      int bump = (5 - d) / 2; // 0..2 px вверх
+      if (d > 7) continue;
+      int bump = 1 + (7 - d) / 3; // 1..3 px
       for (int b = 1; b <= bump; b++) {
         int y = topY - b;
         if (y >= TANK_Y + gap) display.drawPixel(x, y, WHITE);
