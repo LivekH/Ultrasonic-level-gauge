@@ -130,20 +130,47 @@ void drawScale() {
   }
 }
 
-// Только ватерлиния (верх зеркала воды), без заливки всего объёма
-void drawWaterLine(float volume_m3) {
+// Заливка объёма с зазором 1 px от стенок/дна (статика — рамка, динамика — вода)
+// Раз в 5 с по зеркалу ~1 с катится небольшая волна
+void drawWater(float volume_m3) {
   if (volume_m3 < 0.0f) volume_m3 = 0.0f;
   if (volume_m3 > TANK_CAPACITY_M3) volume_m3 = TANK_CAPACITY_M3;
 
-  int fillH = (int)((volume_m3 / TANK_CAPACITY_M3) * TANK_H + 0.5f);
-  if (fillH < 0) fillH = 0;
-  if (fillH > TANK_H) fillH = TANK_H;
+  const int gap = 1;
+  const int waterL = TANK_X + 1 + gap;           // отступ от левой стенки
+  const int waterR = TANK_RIGHT - 1 - gap;       // отступ от правой
+  const int waterBottom = TANK_BOTTOM - 1 - gap; // отступ от дна
+  const int waterW = waterR - waterL + 1;
+  if (waterW <= 0) return;
 
-  int y = TANK_BOTTOM - fillH;
-  if (y < TANK_Y) y = TANK_Y;
-  if (y > TANK_BOTTOM) y = TANK_BOTTOM;
+  // Высота столба внутри «внутренней» зоны (не залазит на рамку)
+  const int innerH = waterBottom - (TANK_Y + gap);
+  if (innerH <= 0) return;
 
-  display.drawFastHLine(TANK_X + 1, y, TANK_W - 1, WHITE);
+  int fillH = (int)((volume_m3 / TANK_CAPACITY_M3) * innerH + 0.5f);
+  if (fillH <= 0) return;
+  if (fillH > innerH) fillH = innerH;
+
+  int topY = waterBottom - fillH + 1;
+  if (topY < TANK_Y + gap) topY = TANK_Y + gap;
+
+  // Основная заливка
+  display.fillRect(waterL, topY, waterW, waterBottom - topY + 1, WHITE);
+
+  // Волна по поверхности: период 5 с, длительность проезда ~900 мс
+  unsigned long cycle = millis() % 5000UL;
+  if (cycle < 900UL && fillH >= 2) {
+    int crest = (int)((cycle * (waterW + 12)) / 900UL) - 6; // бежит слева направо
+    for (int x = waterL; x <= waterR; x++) {
+      int d = abs((x - waterL) - crest);
+      if (d > 5) continue;
+      int bump = (5 - d) / 2; // 0..2 px вверх
+      for (int b = 1; b <= bump; b++) {
+        int y = topY - b;
+        if (y >= TANK_Y + gap) display.drawPixel(x, y, WHITE);
+      }
+    }
+  }
 }
 
 // XX.YY — целые м³ и сотые м³ (= YY×10 литров), напр. 8.56 → 8 м³ + 560 л
@@ -169,7 +196,7 @@ void drawVolumeValue(float volume_m3) {
   int tx = TANK_X + (TANK_W - tw) / 2;
   int ty = TANK_Y + (TANK_H - th) / 2;
 
-  // подложка, чтобы ватерлиния не перечёркивала цифры
+  // подложка на фоне заливки
   display.fillRect(tx - 2, ty - 1, tw + 4, th + 2, BLACK);
   display.setCursor(tx, ty);
   display.print(buf);
@@ -178,8 +205,8 @@ void drawVolumeValue(float volume_m3) {
 void drawInterface(float volume_m3) {
   display.clearDisplay();
 
-  drawWaterLine(volume_m3);
-  drawTankFrame();
+  drawWater(volume_m3);   // динамика
+  drawTankFrame();        // статика поверх зазоров
   drawScale();
   drawVolumeValue(volume_m3);
 
@@ -281,5 +308,5 @@ void loop() {
 
   updateLevelFromSensor();
   drawInterface(volumeFromLevel_m3(currentLevel_m));
-  delay(200);
+  delay(50);  // чаще кадр — волна по зеркалу плавнее
 }
