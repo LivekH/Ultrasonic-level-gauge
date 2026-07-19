@@ -18,9 +18,9 @@
 | OLED SDA | A4 | I2C |
 | OLED SCL | A5 | I2C |
 | OLED RES | **D4** | как в рабочем примере Proteus: `Adafruit_SSD1306 display(4)` |
-| Датчик UART TX→МК | **D6 / PD6 / IO6** | Sensor TX → Nano (SoftSerial RX) |
-| Датчик UART RX←МК | **D7 / PD7 / IO7** | Sensor RX → Nano (SoftSerial TX, для MANUAL) |
-| — | ~~D8~~ | на Nano это **PB0**, не PD8 |
+| Датчик UART TX→МК | **D0 / PD0 / RX0** | Sensor TX → Nano RX (Hardware Serial) |
+| Датчик UART RX←МК | **D1 / PD1 / TX0** | Sensor RX → Nano TX (для MANUAL) |
+| SoftSerial | не для Proteus | в симуляции SoftSerial часто мёртв |
 | Датчик TRIG | D9 / PB1 | запас TRIG/ECHO |
 | Датчик ECHO | D10 / PB2 | запас TRIG/ECHO |
 | Питание | +5V / GND | общий GND |

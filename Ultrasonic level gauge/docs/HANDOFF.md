@@ -35,15 +35,18 @@
 - [x] TRIG/ECHO оставлен в скетче (закомментирован режим)
 - [x] Блокер `HCSR04.MDF` — обход сменой на UART-модель
 
-## Соединения Proteus (UART)
-| Датчик | Nano (ищи так в модели) |
-|--------|-------------------------|
-| TX | **D6 = PD6 = IO6** |
-| RX | **D7 = PD7 = IO7** |
+## Соединения Proteus (UART) — Hardware Serial
+В Proteus SoftSerial часто не работает. Скетч: `SENSOR_UART_HW 1`.
+
+| Датчик | Nano в Proteus |
+|--------|----------------|
+| **TX** | **PD0 / RX0 / D0** |
+| **RX** | **PD1 / TX0 / D1** |
 | VCC | +5V |
 | GND | GND |
 
-Важно: Arduino **D8 = PB0** (порт B), не PD8. SoftSerial перенесён на PD6/PD7.
+Крестовина: TX↔RX. На дисплее без кадров будет `--.--`.
+MODE датчика: лучше **AUTO**.
 
 OLED без изменений: SDA=A4, SCL=A5, RES=D4.
 

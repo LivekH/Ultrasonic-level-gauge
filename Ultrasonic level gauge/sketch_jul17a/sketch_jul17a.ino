@@ -5,8 +5,8 @@
  * OLED init — как в рабочем примере Proteus (ssd1306_128x64_i2c):
  *   Adafruit_SSD1306 display(OLED_RESET);  RES=D4, адрес 0x3D
  *
- * Датчик UART: TX датчика -> D6 (PD6), RX датчика -> D7 (PD7)
- *   (D8 на Nano = PB0, не PD8 — в Proteus легко перепутать)
+ * Датчик UART (Proteus): TX датчика -> D0/PD0/RX0, RX датчика -> D1/PD1/TX0
+ *   В Proteus SoftSerial часто НЕ работает — используем Hardware Serial (как в примере ET).
  * Датчик TRIG/ECHO (запас): TRIG=D9 (PB1), ECHO=D10 (PB2)
  */
 
@@ -14,7 +14,6 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <SoftwareSerial.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -30,15 +29,25 @@
 #define TRIG_PIN 9
 #define ECHO_PIN 10
 
-// Оба на PORT D — в Proteus: PD6 / PD7 (или IO6 / IO7)
-#define SENSOR_RX 6   // Nano D6 / PD6  <- TX датчика
-#define SENSOR_TX 7   // Nano D7 / PD7  -> RX датчика
+// --- UART порт ---
+// 1 = Hardware Serial D0/D1 (PD0/PD1) — ДЛЯ PROTEUS (рекомендуется, как в примере ET)
+// 0 = SoftwareSerial D6/D7 — запас для железа, если D0/D1 заняты USB-отладкой
+#define SENSOR_UART_HW 1
+
+#if defined(SENSOR_MODE_UART) && (SENSOR_UART_HW == 0)
+#include <SoftwareSerial.h>
+#define SENSOR_RX 6   // PD6 <- TX датчика
+#define SENSOR_TX 7   // PD7 -> RX датчика
 SoftwareSerial sensorSerial(SENSOR_RX, SENSOR_TX);
+#define SENSOR_PORT sensorSerial
+#elif defined(SENSOR_MODE_UART)
+#define SENSOR_PORT Serial
+#endif
 
 // Proteus ET UART: расстояние в кадре в СМ. Реальный JSN часто мм → поставь 1.
 #define SENSOR_DIST_IS_MM 0
 
-// Период запроса измерения (мс). Нужен для MODE=MANUAL в Proteus; AUTO тоже переваривает.
+// Период запроса (мс) для MODE=MANUAL. В AUTO кадры идут сами.
 const unsigned long SENSOR_POLL_MS = 200UL;
 
 // =============================================================================
@@ -223,7 +232,11 @@ void drawVolumeValue(float volume_m3) {
   }
 
   char buf[8];
-  snprintf(buf, sizeof(buf), "%d.%02d", m3, centi);
+  if (!sensorHasReading) {
+    snprintf(buf, sizeof(buf), "--.--");  // нет кадра с датчика
+  } else {
+    snprintf(buf, sizeof(buf), "%d.%02d", m3, centi);
+  }
 
   const int tw = (int)strlen(buf) * 12;
   const int th = 16;
@@ -263,8 +276,8 @@ bool readUartDistance(uint16_t &distance_raw) {
   static uint8_t state = 0;
   static uint8_t H = 0, L = 0;
 
-  while (sensorSerial.available()) {
-    uint8_t b = (uint8_t)sensorSerial.read();
+  while (SENSOR_PORT.available()) {
+    uint8_t b = (uint8_t)SENSOR_PORT.read();
     switch (state) {
       case 0:
         if (b == 0xFF) state = 1;
@@ -277,27 +290,29 @@ bool readUartDistance(uint16_t &distance_raw) {
         L = b;
         state = 3;
         break;
-      case 3:
+      case 3: {
         state = 0;
-        if (((0xFF + H + L) & 0xFF) == b) {
+        uint8_t chkEt = (uint8_t)(0xFF + H + L);   // Electronics Tree
+        uint8_t chkSum = (uint8_t)(H + L);          // некоторые JSN без заголовка в сумме
+        if (b == chkEt || b == chkSum) {
           distance_raw = ((uint16_t)H << 8) | L;
           return true;
         }
-        // битый кадр — если это снова FF, начнём новый
         if (b == 0xFF) state = 1;
         break;
+      }
     }
   }
   return false;
 }
 
 void requestUartMeasure() {
-  sensorSerial.write((uint8_t)0x55);
+  SENSOR_PORT.write((uint8_t)0x55);
 }
 
 void flushSensorSerial() {
-  while (sensorSerial.available()) {
-    (void)sensorSerial.read();
+  while (SENSOR_PORT.available()) {
+    (void)SENSOR_PORT.read();
   }
 }
 #endif
@@ -332,10 +347,10 @@ void setupSensor() {
   pinMode(ECHO_PIN, INPUT);
   digitalWrite(TRIG_PIN, LOW);
 #elif defined(SENSOR_MODE_UART)
-  sensorSerial.begin(9600);
-  delay(50);
+  SENSOR_PORT.begin(9600);
+  delay(100);
   flushSensorSerial();
-  requestUartMeasure();  // первый запрос сразу (MANUAL)
+  requestUartMeasure();  // на случай MODE=MANUAL
 #else
 #error "Выбери SENSOR_MODE_TRIG_ECHO или SENSOR_MODE_UART"
 #endif
