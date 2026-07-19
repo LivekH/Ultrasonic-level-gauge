@@ -197,7 +197,22 @@ void drawWater(float volume_m3) {
   }
 }
 
-// XX.YY — целые м³ и сотые (= YY×10 л). Внутри заливки — инверсия (чёрный), иначе белый.
+#ifndef INVERSE
+#define INVERSE 2
+#endif
+
+// Инверсия пикселей в прямоугольнике (для цифр на фоне заливки)
+void invertRect(int x0, int y0, int x1, int y1) {
+  if (x1 < x0 || y1 < y0) return;
+  for (int y = y0; y <= y1; y++) {
+    for (int x = x0; x <= x1; x++) {
+      display.drawPixel(x, y, INVERSE);
+    }
+  }
+}
+
+// XX.YY — всегда белый текст, затем инверсия только в зоне заливки:
+// выше воды остаётся белым, в воде становится чёрным (в т.ч. при частичном перекрытии).
 void drawVolumeValue(float volume_m3) {
   if (volume_m3 < 0.0f) volume_m3 = 0.0f;
   if (volume_m3 > TANK_CAPACITY_M3) volume_m3 = TANK_CAPACITY_M3;
@@ -216,16 +231,27 @@ void drawVolumeValue(float volume_m3) {
   int th = 16;
   int tx = TANK_X + (TANK_W - tw) / 2;
   int ty = TANK_Y + (TANK_H - th) / 2;
-  int textMidY = ty + th / 2;
-
-  int waterL, waterR, waterBottom, topY, fillH;
-  bool hasWater = waterFillGeom(volume_m3, waterL, waterR, waterBottom, topY, fillH);
-  bool inWater = hasWater && (textMidY >= topY) && (textMidY <= waterBottom);
 
   display.setTextSize(2);
-  display.setTextColor(inWater ? BLACK : WHITE);
+  display.setTextColor(WHITE);
   display.setCursor(tx, ty);
   display.print(buf);
+
+  int waterL, waterR, waterBottom, topY, fillH;
+  if (!waterFillGeom(volume_m3, waterL, waterR, waterBottom, topY, fillH)) return;
+
+  // Пересечение bbox цифр с заливкой
+  int ix0 = tx;
+  int iy0 = ty;
+  int ix1 = tx + tw - 1;
+  int iy1 = ty + th - 1;
+
+  if (ix0 < waterL) ix0 = waterL;
+  if (ix1 > waterR) ix1 = waterR;
+  if (iy0 < topY) iy0 = topY;
+  if (iy1 > waterBottom) iy1 = waterBottom;
+
+  invertRect(ix0, iy0, ix1, iy1);
 }
 
 void drawInterface(float volume_m3) {
