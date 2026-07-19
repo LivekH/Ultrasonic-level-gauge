@@ -266,10 +266,12 @@ void drawVolumeValue(float volume_m3) {
 }
 
 void drawSensorDebug() {
-  // Сверху: либо «NN cm», либо сырые байты HEX (VT «fg» = бинарник, смотрим код)
+  // Всегда: HEX кадра + декод в см (чтоб ловить рассинхрон)
   char dbg[22];
   if (sensorHasReading) {
-    snprintf(dbg, sizeof(dbg), "%d cm", (int)(lastDistance_cm + 0.5f));
+    snprintf(dbg, sizeof(dbg), "%02X%02X%02X%02X %d",
+             lastRx[0], lastRx[1], lastRx[2], lastRx[3],
+             (int)(lastDistance_cm + 0.5f));
   } else {
     snprintf(dbg, sizeof(dbg), "%02X%02X%02X%02X",
              lastRx[0], lastRx[1], lastRx[2], lastRx[3]);
@@ -277,6 +279,7 @@ void drawSensorDebug() {
   display.setTextSize(1);
   display.setTextColor(WHITE);
   int tw = (int)strlen(dbg) * 6;
+  if (tw > SCREEN_W) tw = SCREEN_W;
   display.setCursor((SCREEN_W - tw) / 2, 0);
   display.print(dbg);
 }
@@ -308,15 +311,31 @@ static void pushLastRx(uint8_t b) {
   lastRx[3] = b;
 }
 
-// Кадр Proteus ET (факт): 00 HH LL YY, где (HH<<8|LL) = cm * 8, YY — хвост.
-// Пример: 3 см → 00 00 18 F0 (0x18=24=3*8); 180 см → 00 05 A0 ?? (1440=180*8).
+// Кадр Proteus ET (факт с модели), без обязательного 0xFF:
+//   00 HH LL YY
+// Малые см (≤31): LL = cm*8 при HH=0  → 3 см = 00 00 18 F0
+// Большие см:     (HH<<8|LL) = cm*8     → 58 см = 00 01 D0 F0 (464=58*8)
+// Либо прямые см в (HH<<8|LL), если не кратно 8 → 58 = 00 00 3A F0
+// Парсим только когда пришёл хвост YY==0xF0 (иначе ловим «окна» и получаем 9 см вместо 58).
 bool tryParseProteusEtQuirk(uint16_t &distance_raw) {
   if (lastRx[0] != 0x00) return false;
-  uint16_t scaled = ((uint16_t)lastRx[1] << 8) | lastRx[2];
-  if (scaled == 0) return false;
-  if ((scaled & 0x07) != 0) return false;  // кратно 8
-  uint16_t cm = scaled >> 3;
-  if (cm > 400) return false;
+  if (lastRx[3] != 0xF0) return false;  // якорь конца кадра из наблюдений
+
+  uint16_t s = ((uint16_t)lastRx[1] << 8) | lastRx[2];
+  if (s == 0) return false;
+
+  uint16_t cm = 0;
+  if (s > 255 && (s & 0x07) == 0) {
+    cm = s >> 3;                     // 16-bit cm*8
+  } else if (lastRx[1] == 0 && (lastRx[2] & 0x07) == 0) {
+    cm = (uint16_t)lastRx[2] >> 3;   // 8-bit cm*8
+  } else if (s <= 400) {
+    cm = s;                          // прямые см
+  } else {
+    return false;
+  }
+
+  if (cm < 1 || cm > 400) return false;
   distance_raw = cm;
   return true;
 }
