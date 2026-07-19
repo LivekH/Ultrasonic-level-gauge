@@ -33,8 +33,11 @@
 #define SENSOR_TX 7   // Nano D7  -> RX датчика
 SoftwareSerial sensorSerial(SENSOR_RX, SENSOR_TX);
 
-// Proteus ET UART: см. Реальный JSN часто мм → поставь 1.
+// Proteus ET UART: расстояние в кадре в СМ. Реальный JSN часто мм → поставь 1.
 #define SENSOR_DIST_IS_MM 0
+
+// Период запроса измерения (мс). Нужен для MODE=MANUAL в Proteus; AUTO тоже переваривает.
+const unsigned long SENSOR_POLL_MS = 200UL;
 
 // =============================================================================
 // OLED — как в рабочем примере Proteus (RES=D4, адрес 0x3D)
@@ -57,9 +60,13 @@ Adafruit_SSD1306 display(OLED_RESET);
 // ПАРАМЕТРЫ РЕАЛЬНОЙ ЁМКОСТИ (калибровка)
 // =============================================================================
 const float TANK_CAPACITY_M3 = 12.0f;
-const float TANK_HEIGHT_M    = 1.8f;    // <<< КАЛИБРОВКА: дно → горло, м
+const float TANK_HEIGHT_M    = 1.8f;    // <<< КАЛИБРОВКА: дно → горло, м (= 180 см)
 const float TANK_AREA_M2     = TANK_CAPACITY_M3 / TANK_HEIGHT_M;
 const float SENSOR_MOUNT_OFFSET_M = 0.0f;
+
+// Как в Proteus на датчике: MAX = 180 см (пустая ёмкость). Совпадает с TANK_HEIGHT_M.
+const float SENSOR_MAX_CM = TANK_HEIGHT_M * 100.0f;  // 180
+const float SENSOR_MIN_CM = 0.0f;                    // «полная» / вплотную к зеркалу
 
 float volumeFromLevel_m3(float level_m) {
   if (level_m < 0.0f) level_m = 0.0f;
@@ -103,7 +110,9 @@ const int TANK_W      = TANK_RIGHT - TANK_X;                           // 99
 const int TANK_BOTTOM = SCREEN_H - MARGIN;                            // 60
 const int TANK_H      = TANK_BOTTOM - TANK_Y;                          // 56
 
-float currentLevel_m = TANK_HEIGHT_M * 0.5f;
+float currentLevel_m = 0.0f;       // пока нет кадра с датчика — пустая
+float lastDistance_cm = SENSOR_MAX_CM;
+bool  sensorHasReading = false;
 
 void drawTankFrame() {
   display.drawFastVLine(TANK_X, TANK_Y, TANK_H, WHITE);
@@ -242,6 +251,10 @@ void drawInterface(float volume_m3) {
 
 // =============================================================================
 // Датчик
+// Датчик на горле смотрит вниз:
+//   distance = 180 см → пусто (0 м³)
+//   distance = 0 см   → полно (12 м³)
+//   level_m = 1.8 - distance_m
 // =============================================================================
 #if defined(SENSOR_MODE_UART)
 bool readUartDistance(uint16_t &distance_raw) {
@@ -251,15 +264,25 @@ bool readUartDistance(uint16_t &distance_raw) {
   while (sensorSerial.available()) {
     uint8_t b = (uint8_t)sensorSerial.read();
     switch (state) {
-      case 0: if (b == 0xFF) state = 1; break;
-      case 1: H = b; state = 2; break;
-      case 2: L = b; state = 3; break;
+      case 0:
+        if (b == 0xFF) state = 1;
+        break;
+      case 1:
+        H = b;
+        state = 2;
+        break;
+      case 2:
+        L = b;
+        state = 3;
+        break;
       case 3:
         state = 0;
         if (((0xFF + H + L) & 0xFF) == b) {
           distance_raw = ((uint16_t)H << 8) | L;
           return true;
         }
+        // битый кадр — если это снова FF, начнём новый
+        if (b == 0xFF) state = 1;
         break;
     }
   }
@@ -268,6 +291,12 @@ bool readUartDistance(uint16_t &distance_raw) {
 
 void requestUartMeasure() {
   sensorSerial.write((uint8_t)0x55);
+}
+
+void flushSensorSerial() {
+  while (sensorSerial.available()) {
+    (void)sensorSerial.read();
+  }
 }
 #endif
 
@@ -286,6 +315,15 @@ bool readTrigEchoDistanceCm(float &distance_cm) {
 }
 #endif
 
+void applyDistanceCm(float distance_cm) {
+  if (distance_cm < SENSOR_MIN_CM) distance_cm = SENSOR_MIN_CM;
+  if (distance_cm > SENSOR_MAX_CM) distance_cm = SENSOR_MAX_CM;
+
+  lastDistance_cm = distance_cm;
+  currentLevel_m = levelFromDistance_m(distance_cm / 100.0f);
+  sensorHasReading = true;
+}
+
 void setupSensor() {
 #if defined(SENSOR_MODE_TRIG_ECHO)
   pinMode(TRIG_PIN, OUTPUT);
@@ -293,47 +331,58 @@ void setupSensor() {
   digitalWrite(TRIG_PIN, LOW);
 #elif defined(SENSOR_MODE_UART)
   sensorSerial.begin(9600);
+  delay(50);
+  flushSensorSerial();
+  requestUartMeasure();  // первый запрос сразу (MANUAL)
 #else
 #error "Выбери SENSOR_MODE_TRIG_ECHO или SENSOR_MODE_UART"
 #endif
 }
 
+// Читает все доступные кадры, оставляет последнее валидное расстояние
 bool updateLevelFromSensor() {
+  bool got = false;
+
 #if defined(SENSOR_MODE_UART)
   uint16_t raw = 0;
-  if (!readUartDistance(raw)) return false;
+  while (readUartDistance(raw)) {
 #if SENSOR_DIST_IS_MM
-  currentLevel_m = levelFromDistance_m(raw / 1000.0f);
+    applyDistanceCm(raw / 10.0f);   // мм → см
 #else
-  currentLevel_m = levelFromDistance_m(raw / 100.0f);
+    applyDistanceCm((float)raw);    // Proteus ET: уже см
 #endif
-  return true;
+    got = true;
+  }
 #elif defined(SENSOR_MODE_TRIG_ECHO)
   float distance_cm = 0;
-  if (!readTrigEchoDistanceCm(distance_cm)) return false;
-  currentLevel_m = levelFromDistance_m(distance_cm / 100.0f);
-  return true;
+  if (readTrigEchoDistanceCm(distance_cm)) {
+    applyDistanceCm(distance_cm);
+    got = true;
+  }
 #endif
+
+  return got;
 }
 
 void setup() {
-  // как в примере Proteus — Serial не обязателен, но begin OLED идентичный
   setupSensor();
 
-  // ВАЖНО для Proteus: адрес 0x3D, RES=D4, старый конструктор
   display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
-  // begin() кладёт в буфер splash Adafruit — сразу чистим, без display() со логотипом
   display.clearDisplay();
   drawInterface(volumeFromLevel_m3(currentLevel_m));
 }
 
 void loop() {
 #if defined(SENSOR_MODE_UART)
-  // MANUAL mode: раскомментируй
-  // requestUartMeasure();
+  static unsigned long lastPoll = 0;
+  unsigned long now = millis();
+  if (now - lastPoll >= SENSOR_POLL_MS) {
+    lastPoll = now;
+    requestUartMeasure();  // AUTO: лишний байт обычно ок; MANUAL: обязателен
+  }
 #endif
 
   updateLevelFromSensor();
   drawInterface(volumeFromLevel_m3(currentLevel_m));
-  delay(50);  // чаще кадр — волна по зеркалу плавнее
+  delay(50);
 }

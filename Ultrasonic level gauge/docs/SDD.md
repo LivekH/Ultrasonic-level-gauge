@@ -40,9 +40,11 @@
 - AUTO: кадры сами; MANUAL: в `loop` раскомментировать `requestUartMeasure()` (байт `0x55`)
 
 ### Связь дистанция → уровень → объём
-Датчик на горле, смотрит вниз:
+Датчик на горле, смотрит вниз. В Proteus MAX датчика = **180 см** (= `TANK_HEIGHT_M`):
+- `180 см` → пусто `0.00` м³; `0 см` → полно `12.00` м³
 - `level_m = TANK_HEIGHT_M - (distance_m - SENSOR_MOUNT_OFFSET_M)`
 - `volume_m3 = level_m / TANK_HEIGHT_M * TANK_CAPACITY_M3`
+- опрос UART каждые `SENSOR_POLL_MS` (200) байтом `0x55`
 
 ## Параметры ёмкости (калибровка)
 | Параметр | Значение | Где править |
