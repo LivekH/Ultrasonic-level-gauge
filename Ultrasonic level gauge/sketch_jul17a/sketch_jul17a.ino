@@ -5,8 +5,9 @@
  * OLED init — как в рабочем примере Proteus (ssd1306_128x64_i2c):
  *   Adafruit_SSD1306 display(OLED_RESET);  RES=D4, адрес 0x3D
  *
- * Датчик UART: TX датчика -> D8, RX датчика -> D7
- * Датчик TRIG/ECHO (запас): TRIG=D9, ECHO=D10
+ * Датчик UART: TX датчика -> D6 (PD6), RX датчика -> D7 (PD7)
+ *   (D8 на Nano = PB0, не PD8 — в Proteus легко перепутать)
+ * Датчик TRIG/ECHO (запас): TRIG=D9 (PB1), ECHO=D10 (PB2)
  */
 
 #include <SPI.h>
@@ -29,8 +30,9 @@
 #define TRIG_PIN 9
 #define ECHO_PIN 10
 
-#define SENSOR_RX 8   // Nano D8  <- TX датчика
-#define SENSOR_TX 7   // Nano D7  -> RX датчика
+// Оба на PORT D — в Proteus: PD6 / PD7 (или IO6 / IO7)
+#define SENSOR_RX 6   // Nano D6 / PD6  <- TX датчика
+#define SENSOR_TX 7   // Nano D7 / PD7  -> RX датчика
 SoftwareSerial sensorSerial(SENSOR_RX, SENSOR_TX);
 
 // Proteus ET UART: расстояние в кадре в СМ. Реальный JSN часто мм → поставь 1.
