@@ -47,7 +47,11 @@ SoftwareSerial sensorSerial(SENSOR_RX, SENSOR_TX);
 // Proteus ET UART: расстояние в кадре в СМ. Реальный JSN часто мм → поставь 1.
 #define SENSOR_DIST_IS_MM 0
 
-// Период запроса (мс) для MODE=MANUAL. В AUTO кадры идут сами.
+// 0 = принимать кадр FF H L x даже если checksum не сошёлся (диагностика Proteus)
+// 1 = только с верной контрольной суммой
+#define SENSOR_UART_STRICT_CHECKSUM 0
+
+// Период запроса (мс) для MODE=MANUAL. В AUTO кадр идёт только при ИЗМЕНЕНИИ setpoint!
 const unsigned long SENSOR_POLL_MS = 200UL;
 
 // =============================================================================
@@ -124,6 +128,8 @@ const int TANK_H      = TANK_BOTTOM - TANK_Y;                          // 56
 float currentLevel_m = 0.0f;       // пока нет кадра с датчика — пустая
 float lastDistance_cm = SENSOR_MAX_CM;
 bool  sensorHasReading = false;
+unsigned int sensorBytesRx = 0;    // сколько байт дошло по UART (диагностика)
+unsigned int sensorFramesOk = 0;   // сколько кадров принято
 
 void drawTankFrame() {
   display.drawFastVLine(TANK_X, TANK_Y, TANK_H, WHITE);
@@ -233,7 +239,12 @@ void drawVolumeValue(float volume_m3) {
 
   char buf[8];
   if (!sensorHasReading) {
-    snprintf(buf, sizeof(buf), "--.--");  // нет кадра с датчика
+    // Диагностика: no.rx = ни одного байта; bd.fr = байты есть, кадр не собран
+    if (sensorBytesRx == 0) {
+      snprintf(buf, sizeof(buf), "no.rx");
+    } else {
+      snprintf(buf, sizeof(buf), "bd.fr");
+    }
   } else {
     snprintf(buf, sizeof(buf), "%d.%02d", m3, centi);
   }
@@ -253,6 +264,16 @@ void drawVolumeValue(float volume_m3) {
   display.print(buf);
 }
 
+void drawSensorDebug() {
+  // Мелкая строка: b=байты f=кадры — чтобы понять, жив ли UART в Proteus
+  char dbg[20];
+  snprintf(dbg, sizeof(dbg), "b%u f%u", sensorBytesRx % 1000U, sensorFramesOk % 1000U);
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(SCALE_X, SCREEN_H - 8);
+  display.print(dbg);
+}
+
 void drawInterface(float volume_m3) {
   display.clearDisplay();
 
@@ -260,6 +281,7 @@ void drawInterface(float volume_m3) {
   drawTankFrame();        // статика поверх зазоров
   drawScale();
   drawVolumeValue(volume_m3);
+  drawSensorDebug();
 
   display.display();
 }
@@ -278,6 +300,8 @@ bool readUartDistance(uint16_t &distance_raw) {
 
   while (SENSOR_PORT.available()) {
     uint8_t b = (uint8_t)SENSOR_PORT.read();
+    sensorBytesRx++;
+
     switch (state) {
       case 0:
         if (b == 0xFF) state = 1;
@@ -292,10 +316,15 @@ bool readUartDistance(uint16_t &distance_raw) {
         break;
       case 3: {
         state = 0;
-        uint8_t chkEt = (uint8_t)(0xFF + H + L);   // Electronics Tree
-        uint8_t chkSum = (uint8_t)(H + L);          // некоторые JSN без заголовка в сумме
-        if (b == chkEt || b == chkSum) {
+        uint8_t chkEt = (uint8_t)(0xFF + H + L);
+        uint8_t chkSum = (uint8_t)(H + L);
+        bool ok = (b == chkEt) || (b == chkSum);
+#if !SENSOR_UART_STRICT_CHECKSUM
+        ok = true;  // берём H,L даже при плохой сумме — для отладки модели
+#endif
+        if (ok) {
           distance_raw = ((uint16_t)H << 8) | L;
+          sensorFramesOk++;
           return true;
         }
         if (b == 0xFF) state = 1;
@@ -307,12 +336,14 @@ bool readUartDistance(uint16_t &distance_raw) {
 }
 
 void requestUartMeasure() {
+  // JSN: 0x55. Модель ET в MANUAL тоже ждёт байт на RX — шлём 0x55.
   SENSOR_PORT.write((uint8_t)0x55);
 }
 
 void flushSensorSerial() {
   while (SENSOR_PORT.available()) {
     (void)SENSOR_PORT.read();
+    // не считаем в sensorBytesRx — это сброс мусора до старта
   }
 }
 #endif
