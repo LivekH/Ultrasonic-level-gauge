@@ -308,6 +308,19 @@ static void pushLastRx(uint8_t b) {
   lastRx[3] = b;
 }
 
+// Кадр Proteus ET (факт): 00 HH LL YY, где (HH<<8|LL) = cm * 8, YY — хвост.
+// Пример: 3 см → 00 00 18 F0 (0x18=24=3*8); 180 см → 00 05 A0 ?? (1440=180*8).
+bool tryParseProteusEtQuirk(uint16_t &distance_raw) {
+  if (lastRx[0] != 0x00) return false;
+  uint16_t scaled = ((uint16_t)lastRx[1] << 8) | lastRx[2];
+  if (scaled == 0) return false;
+  if ((scaled & 0x07) != 0) return false;  // кратно 8
+  uint16_t cm = scaled >> 3;
+  if (cm > 400) return false;
+  distance_raw = cm;
+  return true;
+}
+
 bool readUartDistance(uint16_t &distance_raw) {
   static uint8_t state = 0;
   static uint8_t H = 0, L = 0;
@@ -318,7 +331,7 @@ bool readUartDistance(uint16_t &distance_raw) {
     sensorBytesRx++;
     pushLastRx(b);
 
-    // 0xFF всегда начинает новый кадр (даже посреди старого)
+    // --- стандарт JSN / документация ET: FF H L CHK ---
     if (b == 0xFF) {
       state = 1;
       continue;
@@ -337,19 +350,27 @@ bool readUartDistance(uint16_t &distance_raw) {
         break;
       case 3: {
         state = 0;
+        uint16_t dist = ((uint16_t)H << 8) | L;
         uint8_t chkEt = (uint8_t)(0xFF + H + L);
         uint8_t chkSum = (uint8_t)(H + L);
         bool ok = (b == chkEt) || (b == chkSum);
 #if !SENSOR_UART_STRICT_CHECKSUM
-        ok = true;
+        // без жёсткой суммы — но только если расстояние правдоподобно (не 0x18F0 → «180»)
+        ok = ok || (dist <= 400);
 #endif
-        if (ok) {
-          distance_raw = ((uint16_t)H << 8) | L;
+        if (ok && dist <= 400) {
+          distance_raw = dist;
           sensorFramesOk++;
           got = true;
         }
         break;
       }
+    }
+
+    // --- обходной разбор кадра Proteus (00 00 XX YY, XX=cm*8) ---
+    if (!got && tryParseProteusEtQuirk(distance_raw)) {
+      sensorFramesOk++;
+      got = true;
     }
   }
   return got;
@@ -384,8 +405,11 @@ bool readTrigEchoDistanceCm(float &distance_cm) {
 #endif
 
 void applyDistanceCm(float distance_cm) {
-  if (distance_cm < SENSOR_MIN_CM) distance_cm = SENSOR_MIN_CM;
-  if (distance_cm > SENSOR_MAX_CM) distance_cm = SENSOR_MAX_CM;
+  // Мусор (например 0x18F0 = 6384) раньшеclamp'ился в 180 → ложные «180 cm» и «0.00».
+  // Такие кадры просто отбрасываем, оставляем прошлое валидное значение.
+  if (distance_cm < SENSOR_MIN_CM || distance_cm > SENSOR_MAX_CM) {
+    return;
+  }
 
   lastDistance_cm = distance_cm;
   currentLevel_m = levelFromDistance_m(distance_cm / 100.0f);

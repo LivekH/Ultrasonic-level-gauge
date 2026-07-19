@@ -31,14 +31,11 @@
 - **`SENSOR_MODE_UART`** — **активен сейчас** (Proteus HCSR04_UART).
 - **`SENSOR_MODE_TRIG_ECHO`** — закомментирован; нужен файл модели `HCSR04.MDF`.
 
-### UART-протокол (Electronics Tree / совместимый кадр)
+### UART-протокол
 - 9600 8N1
-- Кадр 4 байта: `0xFF | Dist_H | Dist_L | CHK`
-- `CHK = (0xFF + Dist_H + Dist_L) & 0xFF`
-- `distance = (H << 8) | L`
-- В модели Proteus ET расстояние в кадре — **см** (`SENSOR_DIST_IS_MM 0`)
-- Реальный JSN-SR04T часто отдаёт **мм** → `SENSOR_DIST_IS_MM 1`
-- AUTO: кадры сами; MANUAL: в `loop` раскомментировать `requestUartMeasure()` (байт `0x55`)
+- **Реальный JSN / док ET:** `FF | H | L | CHK`, distance = (H<<8)|L (см или мм)
+- **Proteus ET (факт с модели):** часто `00 00 XX YY`, где `XX = cm * 8` (3 см → `0x18`), без `0xFF`
+- AUTO: кадр только при клике ▲/▼ на датчике
 
 ### Связь дистанция → уровень → объём
 Датчик на горле, смотрит вниз. В Proteus MAX датчика = **180 см** (= `TANK_HEIGHT_M`):
