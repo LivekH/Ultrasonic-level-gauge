@@ -21,7 +21,7 @@
 // РЕЖИМ ДАТЧИКА — выбери один вариант
 // =============================================================================
 // Вариант A: TRIG/ECHO — закомментируй UART ниже и раскомментируй эту строку
-// #define SENSOR_MODE_TRIG_ECHO
+ //#define SENSOR_MODE_TRIG_ECHO
 
 // Вариант B (сейчас активен): UART — Proteus Electronics Tree HCSR04_UART / JSN-SR04T
 #define SENSOR_MODE_UART
@@ -265,12 +265,17 @@ void drawVolumeValue(float volume_m3) {
 }
 
 void drawSensorDebug() {
-  // Мелкая строка: b=байты f=кадры — чтобы понять, жив ли UART в Proteus
-  char dbg[20];
-  snprintf(dbg, sizeof(dbg), "b%u f%u", sensorBytesRx % 1000U, sensorFramesOk % 1000U);
+  // Сверху по центру — не пересекается со шкалой «0» справа внизу
+  char dbg[22];
+  if (sensorHasReading) {
+    snprintf(dbg, sizeof(dbg), "%d cm", (int)(lastDistance_cm + 0.5f));
+  } else {
+    snprintf(dbg, sizeof(dbg), "b%u f%u", sensorBytesRx % 1000U, sensorFramesOk % 1000U);
+  }
   display.setTextSize(1);
   display.setTextColor(WHITE);
-  display.setCursor(SCALE_X, SCREEN_H - 8);
+  int tw = (int)strlen(dbg) * 6;
+  display.setCursor((SCREEN_W - tw) / 2, 0);
   display.print(dbg);
 }
 
