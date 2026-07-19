@@ -130,52 +130,65 @@ void drawScale() {
   }
 }
 
-// Заливка объёма с зазором 1 px от стенок/дна (статика — рамка, динамика — вода)
-// Раз в 5 с по зеркалу ~1 с катится небольшая волна
-void drawWater(float volume_m3) {
+// Геометрия заливки (общая для воды и инверсии цифр). fillH==0 → пусто.
+bool waterFillGeom(float volume_m3, int &waterL, int &waterR, int &waterBottom, int &topY, int &fillH) {
   if (volume_m3 < 0.0f) volume_m3 = 0.0f;
   if (volume_m3 > TANK_CAPACITY_M3) volume_m3 = TANK_CAPACITY_M3;
 
   const int gap = 1;
-  const int waterL = TANK_X + 1 + gap;           // отступ от левой стенки
-  const int waterR = TANK_RIGHT - 1 - gap;       // отступ от правой
-  const int waterBottom = TANK_BOTTOM - 1 - gap; // отступ от дна
+  waterL = TANK_X + 1 + gap;
+  waterR = TANK_RIGHT - 1 - gap;
+  waterBottom = TANK_BOTTOM - 1 - gap;
   const int waterW = waterR - waterL + 1;
-  if (waterW <= 0) return;
+  if (waterW <= 0) {
+    fillH = 0;
+    return false;
+  }
 
-  // Высота столба внутри «внутренней» зоны (не залазит на рамку)
   const int innerH = waterBottom - (TANK_Y + gap);
-  if (innerH <= 0) return;
+  if (innerH <= 0) {
+    fillH = 0;
+    return false;
+  }
 
-  int fillH = (int)((volume_m3 / TANK_CAPACITY_M3) * innerH + 0.5f);
-  if (fillH <= 0) return;
+  fillH = (int)((volume_m3 / TANK_CAPACITY_M3) * innerH + 0.5f);
+  if (fillH <= 0) {
+    fillH = 0;
+    return false;
+  }
   if (fillH > innerH) fillH = innerH;
 
-  int topY = waterBottom - fillH + 1;
+  topY = waterBottom - fillH + 1;
   if (topY < TANK_Y + gap) topY = TANK_Y + gap;
+  return true;
+}
 
-  // Основная заливка
+// Заливка с зазором 1 px; волна туда-обратно по зеркалу за 5 с
+void drawWater(float volume_m3) {
+  int waterL, waterR, waterBottom, topY, fillH;
+  if (!waterFillGeom(volume_m3, waterL, waterR, waterBottom, topY, fillH)) return;
+
+  const int gap = 1;
+  const int waterW = waterR - waterL + 1;
+
   display.fillRect(waterL, topY, waterW, waterBottom - topY + 1, WHITE);
 
-  // Волна: туда-обратно по всей ширине зеркала (L→R, затем R→L).
-  // Полный цикл 5 с: 2.5 с вправо, 2.5 с влево — в медленной симуляции так читаемее.
   if (fillH >= 2) {
     const unsigned long halfMs = 2500UL;
     const unsigned long cycle = millis() % (halfMs * 2UL);
-    const int path = waterW - 1; // от левого края воды до правого
-    int crest; // смещение гребня от waterL, 0..path
+    const int path = waterW - 1;
+    int crest;
 
     if (cycle < halfMs) {
-      crest = (int)((cycle * (unsigned long)path) / halfMs);           // L → R
+      crest = (int)((cycle * (unsigned long)path) / halfMs);
     } else {
-      crest = path - (int)(((cycle - halfMs) * (unsigned long)path) / halfMs); // R → L
+      crest = path - (int)(((cycle - halfMs) * (unsigned long)path) / halfMs);
     }
 
-    // Широкий «горб», чтобы в Proteus не терялся между кадрами
     for (int x = waterL; x <= waterR; x++) {
       int d = abs((x - waterL) - crest);
       if (d > 7) continue;
-      int bump = 1 + (7 - d) / 3; // 1..3 px
+      int bump = 1 + (7 - d) / 3;
       for (int b = 1; b <= bump; b++) {
         int y = topY - b;
         if (y >= TANK_Y + gap) display.drawPixel(x, y, WHITE);
@@ -184,13 +197,13 @@ void drawWater(float volume_m3) {
   }
 }
 
-// XX.YY — целые м³ и сотые м³ (= YY×10 литров), напр. 8.56 → 8 м³ + 560 л
+// XX.YY — целые м³ и сотые (= YY×10 л). Внутри заливки — инверсия (чёрный), иначе белый.
 void drawVolumeValue(float volume_m3) {
   if (volume_m3 < 0.0f) volume_m3 = 0.0f;
   if (volume_m3 > TANK_CAPACITY_M3) volume_m3 = TANK_CAPACITY_M3;
 
   int m3 = (int)volume_m3;
-  int centi = (int)((volume_m3 - (float)m3) * 100.0f + 0.5f); // 0..99
+  int centi = (int)((volume_m3 - (float)m3) * 100.0f + 0.5f);
   if (centi >= 100) {
     m3++;
     centi = 0;
@@ -199,16 +212,18 @@ void drawVolumeValue(float volume_m3) {
   char buf[8];
   snprintf(buf, sizeof(buf), "%d.%02d", m3, centi);
 
-  display.setTextSize(2);   // символ 12×16
-  display.setTextColor(WHITE);
-
   int tw = (int)strlen(buf) * 12;
   int th = 16;
   int tx = TANK_X + (TANK_W - tw) / 2;
   int ty = TANK_Y + (TANK_H - th) / 2;
+  int textMidY = ty + th / 2;
 
-  // подложка на фоне заливки
-  display.fillRect(tx - 2, ty - 1, tw + 4, th + 2, BLACK);
+  int waterL, waterR, waterBottom, topY, fillH;
+  bool hasWater = waterFillGeom(volume_m3, waterL, waterR, waterBottom, topY, fillH);
+  bool inWater = hasWater && (textMidY >= topY) && (textMidY <= waterBottom);
+
+  display.setTextSize(2);
+  display.setTextColor(inWater ? BLACK : WHITE);
   display.setCursor(tx, ty);
   display.print(buf);
 }
