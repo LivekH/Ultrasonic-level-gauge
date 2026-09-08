@@ -6,6 +6,7 @@
  *
  * OLED: SDA=A4, SCL=A5; 4-пин → OLED_RESET=-1, адрес обычно 0x3C
  * Датчик TRIG/ECHO: TRIG=D9, ECHO=D10
+ * LED индикации датчика: D8 (не на ECHO!)
  */
 
 #include <SPI.h>
@@ -24,6 +25,10 @@
 
 #define TRIG_PIN 9
 #define ECHO_PIN 10
+
+// Индикатор «датчик ответил» — только с ноги МК, НЕ на ECHO/TRIG датчика.
+// Схема: D8 → резистор 220…470 Ω → анод LED → катод → GND
+#define SENSOR_LED_PIN 8
 
 // --- UART (если снова включишь SENSOR_MODE_UART) ---
 // 0 = SoftSerial D6/D7 при USB; 1 = HW Serial D0/D1 (конфликт с USB!)
@@ -516,9 +521,19 @@ bool updateLevelFromSensor() {
   return got;
 }
 
+void pulseSensorActivityLed() {
+  digitalWrite(SENSOR_LED_PIN, HIGH);
+  digitalWrite(LED_BUILTIN, HIGH);  // попутно мигает и светодиод на Nano
+  delay(30);
+  digitalWrite(SENSOR_LED_PIN, LOW);
+  digitalWrite(LED_BUILTIN, LOW);
+}
+
 void setup() {
   Serial.begin(9600);
   pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(SENSOR_LED_PIN, OUTPUT);
+  digitalWrite(SENSOR_LED_PIN, LOW);
   setupSensor();
 
   Wire.begin();
@@ -564,9 +579,7 @@ void loop() {
 
   bool got = updateLevelFromSensor();
   if (got) {
-    digitalWrite(LED_BUILTIN, HIGH);
-    delay(30);
-    digitalWrite(LED_BUILTIN, LOW);
+    pulseSensorActivityLed();
   }
 
   drawInterface(volumeFromLevel_m3(currentLevel_m));

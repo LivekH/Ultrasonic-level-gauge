@@ -45,6 +45,7 @@
 | OLED (4-пин, без RES) | `OLED_RESET = -1` |
 | Датчик TRIG | D9 |
 | Датчик ECHO | D10 |
+| LED «датчик OK» | D8 → 220…470 Ω → LED → GND (не вешать на Echo!) |
 
 Адрес OLED обычно `0x3C`.
 
